@@ -25,84 +25,102 @@ const GetOrCreateImage = async event => {
         }
     } = event.Records[0]
 
-    if (!['403', '404'].includes(status)) return response
+    console.log("Event params from GetOrCreateImage: \n" + JSON.stringify(event))
 
-    let {nextExtension, height, sourceImage, width} = parse(querystring)
-    const [bucket] = domainName.match(/.+(?=\.s3\.amazonaws\.com)/i)
-    const contentType = 'image/' + nextExtension
-    const key = uri.replace(/^\//, '')
-    const sourceKey = sourceImage.replace(/^\//, '')
+    if (!['403', '404'].includes(status)) {
+        console.log("Event Response from GetOrCreateImage with status 403/404: \n" + JSON.stringify(response))
+        return response
+    }
 
-    height = parseInt(height, 10) || null
-    width = parseInt(width, 10)
+    try {
+        console.log("Method GetOrCreateImage | queryString: " + querystring + " \n parse(querystring): " + JSON.stringify(parse(querystring)))
+        let {nextExtension, height, sourceImage, width} = parse(querystring)
+        const [bucket] = domainName.match(/.+(?=\.s3\..*\.amazonaws\.com)/i)
+        const contentType = 'image/' + nextExtension
+        const key = uri.replace(/^\//, '')
+        const sourceKey = sourceImage.replace(/^\//, '')
 
-    if (!width) return response
+        height = parseInt(height, 10) || null
+        width = parseInt(width, 10)
 
-    return S3.getObject({Bucket: bucket, Key: sourceKey})
-        .promise()
-        .then(imageObj => {
-            let resizedImage
-            const errorMessage = `Error while resizing "${sourceKey}" to "${key}":`
+        if (!width) {
+            console.log("Event Response without any change with no width key: \n" + JSON.stringify(response))
+            return response
+        }
 
-            // Required try/catch because Sharp.catch() doesn't seem to actually catch anything.
-            try {
-                resizedImage = Sharp(imageObj.Body)
-                    .resize(width, height)
-                    .toFormat(nextExtension, {
-                        /**
-                         * @see https://sharp.pixelplumbing.com/api-output#webp for a list of options.
-                         */
-                        quality: 95
-                    })
-                    .toBuffer()
-                    .catch(error => {
-                        throw new Error(`${errorMessage} ${error}`)
-                    })
-            } catch (error) {
-                throw new Error(`${errorMessage} ${error}`)
-            }
-            return resizedImage
-        })
-        .then(async imageBuffer => {
-            await S3.putObject({
-                Body: imageBuffer,
-                Bucket: bucket,
-                ContentType: contentType,
-                Key: key,
-                StorageClass: 'STANDARD'
+        return S3.getObject({Bucket: bucket, Key: sourceKey})
+            .promise()
+            .then(imageObj => {
+                let resizedImage
+                const errorMessage = `Error while resizing "${sourceKey}" to "${key}":`
+
+                // Required try/catch because Sharp.catch() doesn't seem to actually catch anything.
+                try {
+                    resizedImage = Sharp(imageObj.Body)
+                        .resize(width, height)
+                        .toFormat(nextExtension, {
+                            /**
+                             * @see https://sharp.pixelplumbing.com/api-output#webp for a list of options.
+                             */
+                            quality: 95
+                        })
+                        .toBuffer()
+                        .catch(error => {
+                            console.log(errorMessage)
+                            throw new Error(`${errorMessage} ${error}`)
+                        })
+                } catch (error) {
+                    throw new Error(`${errorMessage} ${error}`)
+                }
+                return resizedImage
             })
-                .promise()
-                .catch(error => {
-                    throw new Error(`Error while putting resized image '${uri}' into bucket: ${error}`)
+            .then(async imageBuffer => {
+                /* resized picture not save, every time will got 403 or 404 error
+                await S3.putObject({
+                    Body: imageBuffer,
+                    Bucket: bucket,
+                    ContentType: contentType,
+                    Key: key,
+                    StorageClass: 'STANDARD'
                 })
+                    .promise()
+                    .catch(error => {
+                        console.log(`Error while putting resized image '${uri}' into bucket: ${error}`)
+                        throw new Error(`Error while putting resized image '${uri}' into bucket: ${error}`)
+                    })
+                */
 
-            return {
-                ...response,
-                status: 200,
-                statusDescription: 'Found',
-                body: imageBuffer.toString('base64'),
-                bodyEncoding: 'base64',
-                headers: {
-                    ...response.headers,
-                    'content-type': [{key: 'Content-Type', value: contentType}]
+                return {
+                    ...response,
+                    status: 200,
+                    statusDescription: 'Found',
+                    body: imageBuffer.toString('base64'),
+                    bodyEncoding: 'base64',
+                    headers: {
+                        ...response.headers,
+                        'content-type': [{key: 'Content-Type', value: contentType}]
+                    }
                 }
-            }
-        })
-        .catch(error => {
-            const errorMessage = `Error while getting source image object "${sourceKey}": ${error}`
-
-            return {
-                ...response,
-                status: 404,
-                statusDescription: 'Not Found',
-                body: errorMessage,
-                bodyEncoding: 'text',
-                headers: {
-                    ...response.headers,
-                    'content-type': [{key: 'Content-Type', value: 'text/plain'}]
+            })
+            .catch(error => {
+                const errorMessage = `Error while getting source image object "${sourceKey}": ${error}`
+                console.log(errorMessage)
+                return {
+                    ...response,
+                    status: 404,
+                    statusDescription: 'Not Found',
+                    body: errorMessage,
+                    bodyEncoding: 'text',
+                    headers: {
+                        ...response.headers,
+                        'content-type': [{key: 'Content-Type', value: 'text/plain'}]
+                    }
                 }
-            }
-        })
+            })
+    } catch (e) {
+        console.log("Event GetOrCreateImage error: \n" + e.toString())
+        throw e
+    }
 }
 
 module.exports = GetOrCreateImage
