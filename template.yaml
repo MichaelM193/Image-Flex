@@ -81,6 +81,9 @@ Resources:
         BlockPublicPolicy: Yes
         IgnorePublicAcls: Yes
         RestrictPublicBuckets: Yes
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
 
   UriToS3KeyFunction:
     Type: AWS::Serverless::Function
